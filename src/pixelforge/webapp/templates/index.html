@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Forge</title>
+<script>
+  // Flash-of-wrong-theme prevention: applied before first paint, before
+  // the CSS below even matters visually.
+  (function () {
+    if (localStorage.getItem("pixelforge-theme") === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    }
+  })();
+</script>
+<style>
+  :root {
+    --bg: #16181D;
+    --panel: #1D2027;
+    --panel-2: #23262E;
+    --border: #2C303A;
+    --border-strong: #3A3F4B;
+    --text: #F2F3F5;
+    --text-dim: #9AA0AC;
+    --text-faint: #6B7280;
+    --accent: #D946EF;
+    --accent-ink: var(--accent);
+    --accent-hover: #E266F5;
+    --accent-soft: rgba(217, 70, 239, 0.12);
+    --success: #34D399;
+    --warning: #FBBF24;
+    --error: #F87171;
+    --radius: 10px;
+    --radius-lg: 14px;
+    font-size: 16px;
+  }
+
+  html[data-theme="light"] {
+    --bg: #F4F5F7;
+    --panel: #FFFFFF;
+    --panel-2: #EEF0F3;
+    --border: #E1E3E8;
+    --border-strong: #B6BAC4;
+    --text: #1A1D23;
+    --text-dim: #565C68;
+    --text-faint: #868C99;
+    --accent: #D946EF;
+    --accent-ink: #A21CAF;
+    --accent-hover: #C026D3;
+    --accent-soft: rgba(162, 28, 175, 0.09);
+    --success: #059669;
+    --warning: #B45309;
+    --error: #DC2626;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    min-height: 100vh;
+    padding: 40px 24px;
+    display: flex;
+    justify-content: center;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+
+  .app { width: 100%; max-width: 880px; }
+
+  .app-header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+
+  .logo-mark {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, #D946EF 0%, #9333EA 55%, #4C1D95 100%);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .logo-mark svg { width: 18px; height: 18px; }
+
+  .app-header h1 { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+
+  .app-header .tagline {
+    color: var(--text-faint); font-size: 0.85rem; margin-left: 4px;
+    padding-left: 12px; border-left: 1px solid var(--border-strong);
+  }
+
+  .theme-toggle {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border-strong);
+    color: var(--text-dim); border-radius: 8px; padding: 7px 12px;
+    font-size: 0.8rem; font-family: inherit; cursor: pointer;
+  }
+  .theme-toggle:hover { color: var(--text); }
+  .theme-toggle svg { width: 14px; height: 14px; }
+
+  .controls-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 18px 20px; margin-bottom: 16px;
+    display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+
+  .field label {
+    font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-faint);
+  }
+
+  select, input[type="number"] {
+    background: var(--panel-2); border: 1px solid var(--border-strong); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 0.88rem; font-family: inherit;
+  }
+  select { min-width: 110px; cursor: pointer; }
+  input[type="number"] { width: 68px; }
+
+  select:focus-visible, input:focus-visible, button:focus-visible, .toggle-btn:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  .dims-field { display: flex; align-items: center; gap: 8px; }
+  .dims-arrow { color: var(--text-faint); font-size: 0.9rem; padding-bottom: 8px; }
+
+  .rotate-btn {
+    background: var(--panel-2); border: 1px solid var(--border-strong); color: var(--text-dim);
+    border-radius: 8px; padding: 7px 12px; font-size: 0.8rem;
+    display: flex; align-items: center; gap: 6px; cursor: pointer; font-family: inherit;
+  }
+  .rotate-btn:hover { color: var(--text); border-color: #4A4F5C; }
+  .rotate-btn svg { width: 14px; height: 14px; transition: transform 0.2s ease; }
+
+  .toggle-group {
+    display: flex; background: var(--panel-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 3px; gap: 2px;
+  }
+  .toggle-btn {
+    border: none; background: transparent; color: var(--text-faint);
+    padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-family: inherit; cursor: pointer;
+  }
+  .toggle-btn.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+
+  .spacer { flex: 1; }
+
+  .btn-convert {
+    background: var(--accent); color: #1A0620; border: none; border-radius: 8px;
+    padding: 10px 22px; font-size: 0.9rem; font-weight: 650; cursor: pointer;
+    font-family: inherit; transition: background 0.15s ease;
+  }
+  .btn-convert:hover { background: var(--accent-hover); }
+  .btn-convert:disabled { opacity: 0.6; cursor: default; }
+
+  .dropzone {
+    background: var(--panel); border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg);
+    padding: 56px 24px; text-align: center; margin-bottom: 16px; cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone.file-error { border-color: var(--error); }
+  .dropzone svg { width: 34px; height: 34px; color: var(--text-faint); margin-bottom: 14px; }
+  .dropzone.dragover svg { color: var(--accent); }
+  .dropzone .primary { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+  .dropzone .secondary { font-size: 0.82rem; color: var(--text-faint); }
+  .dropzone .secondary strong { color: var(--text-dim); font-weight: 600; }
+
+  .format-badges { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .format-badge {
+    font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; color: var(--text-faint);
+    background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: 5px; padding: 3px 8px;
+  }
+
+  .selected-files {
+    font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 12px; display: none;
+  }
+  .selected-files.visible { display: block; }
+
+  .results-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 18px 20px 20px; display: none;
+  }
+  .results-card.visible { display: block; }
+
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .results-header h2 { font-size: 0.92rem; font-weight: 650; margin: 0; }
+  .results-count { font-size: 0.78rem; color: var(--text-faint); }
+  .results-count .ok { color: var(--success); font-weight: 600; }
+  .results-count .warn { color: var(--warning); font-weight: 600; }
+  .results-count .err { color: var(--error); font-weight: 600; }
+
+  .result-row { display: flex; align-items: center; gap: 14px; padding: 10px 6px; border-bottom: 1px solid var(--border); }
+  .result-row:last-of-type { border-bottom: none; }
+
+  .thumb {
+    width: 40px; height: 40px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    background: var(--panel-2); border: 1px solid var(--border-strong);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb svg { width: 18px; height: 18px; color: var(--text-faint); }
+  .thumb.is-error svg { color: var(--error); }
+  .thumb.is-skipped svg { color: var(--warning); }
+
+  .result-info { flex: 1; min-width: 0; }
+  .result-name {
+    font-size: 0.85rem; font-weight: 550; margin-bottom: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .result-meta { font-size: 0.75rem; color: var(--text-faint); display: flex; align-items: center; gap: 6px; }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .status-dot.error { background: var(--error); }
+  .status-dot.skipped { background: var(--warning); }
+
+  .download-icon {
+    width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint); cursor: pointer; flex-shrink: 0; border: 1px solid transparent; background: none;
+    font-family: inherit;
+  }
+  .download-icon:hover { color: var(--text); border-color: var(--border-strong); background: var(--panel-2); }
+  .download-icon svg { width: 15px; height: 15px; }
+
+  .results-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+  .btn-zip {
+    background: var(--accent); color: #1A0620; border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 0.85rem; font-weight: 650; cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .btn-zip:hover { background: var(--accent-hover); }
+  .btn-zip:disabled { opacity: 0.5; cursor: default; }
+  .btn-zip svg { width: 14px; height: 14px; }
+
+  @media (max-width: 640px) {
+    .controls-card { flex-direction: column; align-items: stretch; }
+    .spacer { display: none; }
+    .btn-convert { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="app-header">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3L20 7.5L12 12L4 7.5L12 3Z" fill="white" fill-opacity="0.95"/>
+        <path d="M4 7.5L12 12V21L4 16.5V7.5Z" fill="white" fill-opacity="0.62"/>
+        <path d="M20 7.5L12 12V21L20 16.5V7.5Z" fill="white" fill-opacity="0.38"/>
+      </svg>
+    </div>
+    <h1>Pixel Forge</h1>
+    <span class="tagline">Batch image converter</span>
+    <button class="theme-toggle" id="themeToggle" type="button">
+      <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <span id="themeLabel">Dark</span>
+    </button>
+  </div>
+
+  <div class="controls-card">
+    <div class="field">
+      <label for="format">Output format</label>
+      <select id="format">
+        <option>JPEG</option>
+        <option>PNG</option>
+        <option>WEBP</option>
+        <option>GIF</option>
+        <option>BMP</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Target size</label>
+      <div class="dims-field">
+        <input type="number" id="width" value="128" min="1" aria-label="Width">
+        <span class="dims-arrow">→</span>
+        <input type="number" id="height" value="128" min="1" aria-label="Height">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Rotate</label>
+      <button class="rotate-btn" id="rotateBtn" type="button" data-degrees="0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v6h-6"/></svg>
+        <span id="rotateLabel">0°</span>
+      </button>
+    </div>
+
+    <div class="field">
+      <label>Resize mode</label>
+      <div class="toggle-group" role="group" aria-label="Resize mode" id="resizeToggle">
+        <button class="toggle-btn active" type="button" data-mode="fit" title="Not sure? This picks Fit for you.">Auto</button>
+        <button class="toggle-btn" type="button" data-mode="fit">Fit</button>
+        <button class="toggle-btn" type="button" data-mode="stretch">Stretch</button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <button class="btn-convert" id="convertBtn" type="button">Convert</button>
+  </div>
+
+  <div class="dropzone" id="dropzone">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v12m0-12l4 4m-4-4L8 7"/>
+      <path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/>
+    </svg>
+    <div class="primary">Drop images here to convert</div>
+    <div class="secondary">or <strong>browse files</strong> — any number of files at once</div>
+    <div class="format-badges">
+      <span class="format-badge">JPG</span>
+      <span class="format-badge">PNG</span>
+      <span class="format-badge">WEBP</span>
+      <span class="format-badge">GIF</span>
+      <span class="format-badge">BMP</span>
+    </div>
+    <div class="selected-files" id="selectedFilesLabel"></div>
+  </div>
+  <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+
+  <div class="results-card" id="resultsCard">
+    <div class="results-header">
+      <h2>Results</h2>
+      <div class="results-count" id="resultsCount"></div>
+    </div>
+
+    <div id="resultsList"></div>
+
+    <div class="results-footer">
+      <button class="btn-zip" id="zipBtn" type="button" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+        Download All (ZIP)
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ---------- Theme toggle ----------
+  const themeToggle = document.getElementById('themeToggle');
+  const iconMoon = document.getElementById('themeIconMoon');
+  const iconSun = document.getElementById('themeIconSun');
+  const themeLabel = document.getElementById('themeLabel');
+
+  function syncThemeUI() {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    iconMoon.style.display = isLight ? 'none' : '';
+    iconSun.style.display = isLight ? '' : 'none';
+    themeLabel.textContent = isLight ? 'Light' : 'Dark';
+  }
+  syncThemeUI();
+
+  themeToggle.addEventListener('click', () => {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (isLight) {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('pixelforge-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('pixelforge-theme', 'light');
+    }
+    syncThemeUI();
+  });
+
+  // ---------- Rotate cycling: 0 -> 90 -> 180 -> 270 -> 0 ----------
+  const rotateBtn = document.getElementById('rotateBtn');
+  const rotateLabel = document.getElementById('rotateLabel');
+  const rotateIcon = rotateBtn.querySelector('svg');
+
+  rotateBtn.addEventListener('click', () => {
+    const current = parseInt(rotateBtn.dataset.degrees, 10);
+    const next = (current + 90) % 360;
+    rotateBtn.dataset.degrees = next;
+    rotateLabel.textContent = next + '°';
+    rotateIcon.style.transform = `rotate(${next}deg)`;
+  });
+
+  // ---------- Resize mode toggle ----------
+  const resizeToggle = document.getElementById('resizeToggle');
+  resizeToggle.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      resizeToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // ---------- File selection (click + drag/drop) ----------
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const selectedFilesLabel = document.getElementById('selectedFilesLabel');
+  let selectedFiles = [];
+
+  function setSelectedFiles(fileList) {
+    selectedFiles = Array.from(fileList);
+    if (selectedFiles.length > 0) {
+      selectedFilesLabel.textContent = selectedFiles.length === 1
+        ? `1 file selected: ${selectedFiles[0].name}`
+        : `${selectedFiles.length} files selected`;
+      selectedFilesLabel.classList.add('visible');
+    } else {
+      selectedFilesLabel.classList.remove('visible');
+    }
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => setSelectedFiles(fileInput.files));
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); })
+  );
+  ['dragleave'].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+  );
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    setSelectedFiles(e.dataTransfer.files);
+  });
+
+  // ---------- Convert ----------
+  const convertBtn = document.getElementById('convertBtn');
+  const resultsCard = document.getElementById('resultsCard');
+  const resultsList = document.getElementById('resultsList');
+  const resultsCount = document.getElementById('resultsCount');
+  const zipBtn = document.getElementById('zipBtn');
+
+  function currentParams() {
+    return {
+      format: document.getElementById('format').value,
+      width: document.getElementById('width').value,
+      height: document.getElementById('height').value,
+      resize_mode: resizeToggle.querySelector('.toggle-btn.active').dataset.mode,
+      rotate: rotateBtn.dataset.degrees,
+    };
+  }
+
+  function buildFormData() {
+    const fd = new FormData();
+    selectedFiles.forEach(f => fd.append('files', f));
+    const params = currentParams();
+    Object.entries(params).forEach(([k, v]) => fd.append(k, v));
+    return fd;
+  }
+
+  const ICON_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+  const ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>';
+  const ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>';
+
+  function renderResults(data) {
+    resultsList.innerHTML = '';
+    data.results.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+
+      let thumbHtml, metaHtml, downloadHtml = '';
+      if (r.status === 'success') {
+        thumbHtml = `<div class="thumb"><img src="data:image/${data_ext(r.output_filename)};base64,${r.data_b64}" alt=""></div>`;
+        metaHtml = `<span class="status-dot"></span> Converted to ${r.output_filename.split('.').pop().toUpperCase()}`;
+        downloadHtml = `<button class="download-icon" data-filename="${r.output_filename}" data-b64="${r.data_b64}" title="Download">${ICON_DOWNLOAD}</button>`;
+      } else if (r.status === 'skipped') {
+        thumbHtml = `<div class="thumb is-skipped">${ICON_WARN}</div>`;
+        metaHtml = `<span class="status-dot skipped"></span> Skipped — ${r.message}`;
+      } else {
+        thumbHtml = `<div class="thumb is-error">${ICON_WARN}</div>`;
+        metaHtml = `<span class="status-dot error"></span> Error — ${r.message}`;
+      }
+
+      row.innerHTML = `
+        ${thumbHtml}
+        <div class="result-info">
+          <div class="result-name">${r.filename}</div>
+          <div class="result-meta">${metaHtml}</div>
+        </div>
+        ${downloadHtml}
+      `;
+      resultsList.appendChild(row);
+    });
+
+    resultsList.querySelectorAll('.download-icon').forEach(btn => {
+      btn.addEventListener('click', () => downloadSingle(btn.dataset.filename, btn.dataset.b64));
+    });
+
+    const c = data.counts;
+    const parts = [];
+    if (c.success) parts.push(`<span class="ok">${c.success} converted</span>`);
+    if (c.skipped) parts.push(`<span class="warn">${c.skipped} skipped</span>`);
+    if (c.error) parts.push(`<span class="err">${c.error} error${c.error === 1 ? '' : 's'}</span>`);
+    resultsCount.innerHTML = parts.join(' · ');
+
+    resultsCard.classList.add('visible');
+    zipBtn.disabled = c.success === 0;
+  }
+
+  function data_ext(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    return ext === 'jpg' ? 'jpeg' : ext;
+  }
+
+  function downloadSingle(filename, b64) {
+    const a = document.createElement('a');
+    a.href = 'data:application/octet-stream;base64,' + b64;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function flashDropzoneError() {
+    dropzone.classList.add('file-error');
+    setTimeout(() => dropzone.classList.remove('file-error'), 1000);
+  }
+
+  convertBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) {
+      flashDropzoneError();
+      return;
+    }
+    convertBtn.disabled = true;
+    convertBtn.textContent = 'Converting…';
+    try {
+      const res = await fetch('/api/convert', { method: 'POST', body: buildFormData() });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Conversion failed');
+        return;
+      }
+      renderResults(data);
+    } catch (err) {
+      alert('Network error: could not reach the server.');
+    } finally {
+      convertBtn.disabled = false;
+      convertBtn.textContent = 'Convert';
+    }
+  });
+
+  zipBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) return;
+    zipBtn.disabled = true;
+    try {
+      const res = await fetch('/api/convert/zip', { method: 'POST', body: buildFormData() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Could not build ZIP');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'pixelforge-converted.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Network error: could not reach the server.');
+    } finally {
+      zipBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
