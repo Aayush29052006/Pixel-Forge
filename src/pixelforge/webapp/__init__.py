@@ -8,16 +8,28 @@ machine — files are sent directly in the request.
 
 from __future__ import annotations
 
+import os
+
 from flask import Flask
+
+_DEFAULT_MAX_UPLOAD_MB = 300
 
 
 def create_app() -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__)
 
-    # Generous cap for "hundreds of icon-sized images" while still
-    # bounding memory use from a runaway or malicious upload.
-    app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB
+    # Total request size cap, in MB. This is a local, single-user dev
+    # tool, so 300 MB by default is generous — the original 25 MB cap
+    # turned out to be too low for real batches of full-resolution
+    # photos (a handful of multi-MB JPEGs hits it fast). Overridable
+    # via PIXELFORGE_MAX_UPLOAD_MB, mainly so the "upload too large"
+    # error path can be tested on demand without editing code, e.g.:
+    #   PIXELFORGE_MAX_UPLOAD_MB=1 ./run.sh
+    max_upload_mb = int(
+        os.environ.get("PIXELFORGE_MAX_UPLOAD_MB", _DEFAULT_MAX_UPLOAD_MB)
+    )
+    app.config["MAX_CONTENT_LENGTH"] = max_upload_mb * 1024 * 1024
 
     from pixelforge.webapp.routes import bp
 

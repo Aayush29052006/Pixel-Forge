@@ -60,6 +60,19 @@ def _parse_batch_params() -> dict:
     }
 
 
+@bp.app_errorhandler(413)
+def handle_payload_too_large(e):
+    return jsonify(
+        error="Upload too large. Try converting fewer files at once, "
+        "or a smaller batch."
+    ), 413
+
+
+@bp.app_errorhandler(500)
+def handle_server_error(e):
+    return jsonify(error="Something went wrong on the server."), 500
+
+
 @bp.route("/")
 def index():
     return render_template("index.html")

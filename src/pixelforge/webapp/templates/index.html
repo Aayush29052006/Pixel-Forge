@@ -171,7 +171,33 @@
   .selected-files {
     font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 12px; display: none;
   }
-  .selected-files.visible { display: block; }
+  .selected-files.visible { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .selected-files .clear-link {
+    color: var(--accent-ink); text-decoration: underline; cursor: pointer; background: none; border: none;
+    font-size: 0.78rem; font-family: inherit; padding: 0;
+  }
+
+  .toast-container {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 1000; width: min(420px, calc(100vw - 48px));
+  }
+  .toast {
+    background: var(--panel); border: 1px solid var(--border-strong); border-left: 3px solid var(--error);
+    border-radius: 8px; padding: 12px 14px; font-size: 0.85rem; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25); display: flex; align-items: flex-start; gap: 10px;
+    animation: toast-in 0.2s ease;
+  }
+  .toast.info { border-left-color: var(--accent); }
+  .toast svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; color: var(--error); }
+  .toast.info svg { color: var(--accent-ink); }
+  .toast .toast-close {
+    margin-left: auto; background: none; border: none; color: var(--text-faint); cursor: pointer;
+    font-size: 1rem; line-height: 1; padding: 0;
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
   .results-card {
     background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -270,6 +296,36 @@
     </div>
 
     <div class="field">
+      <label for="sizePreset">Size preset</label>
+      <select id="sizePreset">
+        <option value="">Custom</option>
+        <optgroup label="Icons / Square">
+          <option value="128,128">Icon — 128×128</option>
+          <option value="256,256">Icon — 256×256</option>
+          <option value="512,512">Icon — 512×512</option>
+          <option value="1024,1024">Square — 1024×1024</option>
+        </optgroup>
+        <optgroup label="HD / Broadcast">
+          <option value="1280,720">HD (720p) — 1280×720</option>
+          <option value="1920,1080">Full HD (1080p) — 1920×1080</option>
+          <option value="2560,1440">QHD (1440p) — 2560×1440</option>
+        </optgroup>
+        <optgroup label="Cinema (DCI)">
+          <option value="2048,1080">2K DCI — 2048×1080</option>
+          <option value="4096,2160">4K DCI — 4096×2160</option>
+          <option value="8192,4320">8K DCI — 8192×4320</option>
+        </optgroup>
+        <optgroup label="Ultra High Resolution">
+          <option value="3840,2160">4K UHD — 3840×2160</option>
+          <option value="5120,2880">5K — 5120×2880</option>
+          <option value="6144,3160">6K (cinema) — 6144×3160</option>
+          <option value="6144,3456">6K Full Frame — 6144×3456</option>
+          <option value="7680,4320">8K UHD — 7680×4320</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="field">
       <label>Target size</label>
       <div class="dims-field">
         <input type="number" id="width" value="128" min="1" aria-label="Width">
@@ -317,6 +373,8 @@
     <div class="selected-files" id="selectedFilesLabel"></div>
   </div>
   <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+
+  <div class="toast-container" id="toastContainer"></div>
 
   <div class="results-card" id="resultsCard">
     <div class="results-header">
@@ -385,26 +443,52 @@
     });
   });
 
-  // ---------- File selection (click + drag/drop) ----------
+  // ---------- File selection (click + drag/drop) — additive ----------
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('fileInput');
   const selectedFilesLabel = document.getElementById('selectedFilesLabel');
   let selectedFiles = [];
 
-  function setSelectedFiles(fileList) {
-    selectedFiles = Array.from(fileList);
+  function fileKey(f) {
+    return `${f.name}::${f.size}::${f.lastModified}`;
+  }
+
+  function addFiles(fileList) {
+    const existingKeys = new Set(selectedFiles.map(fileKey));
+    Array.from(fileList).forEach(f => {
+      if (!existingKeys.has(fileKey(f))) {
+        selectedFiles.push(f);
+        existingKeys.add(fileKey(f));
+      }
+    });
+    renderSelectedFilesLabel();
+  }
+
+  function clearSelectedFiles() {
+    selectedFiles = [];
+    fileInput.value = '';
+    renderSelectedFilesLabel();
+  }
+
+  function renderSelectedFilesLabel() {
     if (selectedFiles.length > 0) {
-      selectedFilesLabel.textContent = selectedFiles.length === 1
+      const text = selectedFiles.length === 1
         ? `1 file selected: ${selectedFiles[0].name}`
         : `${selectedFiles.length} files selected`;
+      selectedFilesLabel.innerHTML = `<span>${text}</span><button type="button" class="clear-link" id="clearFilesBtn">Clear</button>`;
       selectedFilesLabel.classList.add('visible');
+      document.getElementById('clearFilesBtn').addEventListener('click', e => {
+        e.stopPropagation();
+        clearSelectedFiles();
+      });
     } else {
+      selectedFilesLabel.innerHTML = '';
       selectedFilesLabel.classList.remove('visible');
     }
   }
 
   dropzone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => setSelectedFiles(fileInput.files));
+  fileInput.addEventListener('change', () => addFiles(fileInput.files));
 
   ['dragenter', 'dragover'].forEach(evt =>
     dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); })
@@ -415,8 +499,43 @@
   dropzone.addEventListener('drop', e => {
     e.preventDefault();
     dropzone.classList.remove('dragover');
-    setSelectedFiles(e.dataTransfer.files);
+    addFiles(e.dataTransfer.files);
   });
+
+  // ---------- Size presets ----------
+  const sizePreset = document.getElementById('sizePreset');
+  const widthInput = document.getElementById('width');
+  const heightInput = document.getElementById('height');
+  sizePreset.addEventListener('change', () => {
+    if (!sizePreset.value) return;
+    const [w, h] = sizePreset.value.split(',');
+    widthInput.value = w;
+    heightInput.value = h;
+  });
+  // If someone hand-edits width/height after picking a preset, treat
+  // it as custom again so the dropdown doesn't silently disagree.
+  [widthInput, heightInput].forEach(input =>
+    input.addEventListener('input', () => { sizePreset.value = ''; })
+  );
+
+  // ---------- Toast notifications (replaces native alert()) ----------
+  const toastContainer = document.getElementById('toastContainer');
+  const ICON_TOAST_ERROR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>';
+  const ICON_TOAST_INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>';
+
+  function showToast(message, type = 'error') {
+    const toast = document.createElement('div');
+    toast.className = `toast${type === 'info' ? ' info' : ''}`;
+    toast.innerHTML = `
+      ${type === 'info' ? ICON_TOAST_INFO : ICON_TOAST_ERROR}
+      <span>${message}</span>
+      <button class="toast-close" type="button" aria-label="Dismiss">&times;</button>
+    `;
+    toastContainer.appendChild(toast);
+    const remove = () => toast.remove();
+    toast.querySelector('.toast-close').addEventListener('click', remove);
+    setTimeout(remove, 6000);
+  }
 
   // ---------- Convert ----------
   const convertBtn = document.getElementById('convertBtn');
@@ -424,6 +543,7 @@
   const resultsList = document.getElementById('resultsList');
   const resultsCount = document.getElementById('resultsCount');
   const zipBtn = document.getElementById('zipBtn');
+
 
   function currentParams() {
     return {
@@ -520,14 +640,20 @@
     convertBtn.textContent = 'Converting…';
     try {
       const res = await fetch('/api/convert', { method: 'POST', body: buildFormData() });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        showToast('The server sent back something unexpected. Try a smaller batch.');
+        return;
+      }
       if (!res.ok) {
-        alert(data.error || 'Conversion failed');
+        showToast(data.error || 'Conversion failed.');
         return;
       }
       renderResults(data);
     } catch (err) {
-      alert('Network error: could not reach the server.');
+      showToast('Could not reach the server. Is it still running?');
     } finally {
       convertBtn.disabled = false;
       convertBtn.textContent = 'Convert';
@@ -541,7 +667,7 @@
       const res = await fetch('/api/convert/zip', { method: 'POST', body: buildFormData() });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Could not build ZIP');
+        showToast(data.error || 'Could not build the ZIP file.');
         return;
       }
       const blob = await res.blob();
@@ -554,7 +680,7 @@
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Network error: could not reach the server.');
+      showToast('Could not reach the server. Is it still running?');
     } finally {
       zipBtn.disabled = false;
     }

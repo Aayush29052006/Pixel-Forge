@@ -134,3 +134,35 @@ def test_convert_zip_all_files_fail_returns_400(client):
     data = {"files": (io.BytesIO(b"not an image"), "bad.png")}
     resp = client.post("/api/convert/zip", data=data, content_type="multipart/form-data")
     assert resp.status_code == 400
+
+
+def test_oversized_upload_returns_json_not_html():
+    """A too-large upload must come back as parseable JSON (413), not
+    Flask's default HTML error page — otherwise the frontend's
+    res.json() call throws and shows a misleading "network error"
+    instead of the real "upload too large" message.
+    """
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["MAX_CONTENT_LENGTH"] = 100  # tiny, to trigger 413 cheaply
+    with app.test_client() as c:
+        data = {"files": (io.BytesIO(_make_image_bytes()), "icon.png")}
+        resp = c.post("/api/convert", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 413
+        assert resp.is_json
+        assert "error" in resp.get_json()
+
+
+def test_max_upload_env_var_is_respected(monkeypatch):
+    """PIXELFORGE_MAX_UPLOAD_MB should override the default cap, so the
+    413 path can be tested on demand without editing source.
+    """
+    monkeypatch.setenv("PIXELFORGE_MAX_UPLOAD_MB", "1")
+    app = create_app()
+    assert app.config["MAX_CONTENT_LENGTH"] == 1 * 1024 * 1024
+
+
+def test_default_upload_cap_without_env_var(monkeypatch):
+    monkeypatch.delenv("PIXELFORGE_MAX_UPLOAD_MB", raising=False)
+    app = create_app()
+    assert app.config["MAX_CONTENT_LENGTH"] == 300 * 1024 * 1024
