@@ -3,8 +3,8 @@
 (kept off the Flask default 5000 to avoid clashing with other local
 projects running at the same time).
 
-Usage: ./venv/bin/python run.sh   (from the project root, after
-       pip install -e ".[dev]")
+Usage: source .venv/bin/activate && python run.sh
+       (from the project root, after pip install -e ".[dev]")
 """
 from pixelforge.webapp import create_app
 
