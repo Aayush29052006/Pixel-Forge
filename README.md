@@ -75,7 +75,7 @@ local projects that may already be running on 5000.
 pytest -v
 ```
 
-37 tests across the conversion engine, the batch runner, and the web layer.
+38 tests across the conversion engine, the batch runner, and the web layer.
 
 ## Known limits
 
