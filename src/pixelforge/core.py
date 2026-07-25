@@ -42,10 +42,9 @@ def convert_image(
             normalized to Pillow's expected names).
         size: Optional (width, height) target size. If None, the image
             is not resized.
-        resize_mode: "fit" shrinks the image to fit within `size` while
-            preserving aspect ratio (output dimensions may be smaller
-            than `size` on one axis — no padding is added). "stretch"
-            forces the exact `size`, distorting aspect ratio if needed.
+        resize_mode: "fit" scales the image (up or down) to fit within
+            `size` while preserving aspect ratio. "stretch" forces the
+            exact `size`, distorting aspect ratio if needed.
         rotate: Clockwise rotation in degrees. Must be a multiple of 90.
 
     Returns:
@@ -100,11 +99,16 @@ def convert_image(
 
 
 def _resize_fit(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
-    """Shrink `img` to fit within (target_w, target_h), keeping aspect ratio.
+    """Scale `img` to fit within (target_w, target_h), keeping aspect ratio.
 
-    Uses Pillow's thumbnail(), so the result never exceeds the target box
-    on either axis but is not padded up to it.
+    Scales in either direction — shrinks images larger than the target
+    box, and enlarges images smaller than it — so the result always
+    fills as much of the box as possible on at least one axis without
+    exceeding it on either. (Note: enlarging is interpolation, not
+    AI upscaling — it won't add real detail to a small source image.)
     """
-    result = img.copy()
-    result.thumbnail((target_w, target_h), Image.LANCZOS)
-    return result
+    src_w, src_h = img.size
+    scale = min(target_w / src_w, target_h / src_h)
+    new_w = max(1, round(src_w * scale))
+    new_h = max(1, round(src_h * scale))
+    return img.resize((new_w, new_h), Image.LANCZOS)

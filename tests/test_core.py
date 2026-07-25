@@ -57,6 +57,25 @@ def test_resize_fit_preserves_aspect_ratio():
     assert result.size == (40, 20)  # fits within 40x40, keeps 2:1 ratio
 
 
+def test_resize_fit_upscales_when_source_is_smaller_than_target():
+    """Fit mode must scale UP too, not just down. Previously used PIL's
+    thumbnail(), which by design never enlarges — a source image smaller
+    than the target box came back completely unchanged, silently
+    ignoring the requested size. This is the exact bug reported: an
+    1672x941 source with an 8K (7680x4320) target came back as
+    1672x941, untouched.
+    """
+    data = _make_image_bytes(size=(1672, 941))
+    out = convert_image(
+        data, target_format="JPEG", size=(7680, 4320), resize_mode="fit"
+    )
+    result = Image.open(io.BytesIO(out))
+    # height is the binding constraint here (4320/941 < 7680/1672),
+    # so height hits the target exactly and width comes out just under
+    assert result.size == (7676, 4320)
+    assert result.size != (1672, 941)  # must NOT be left unchanged
+
+
 def test_rotate_90_clockwise_swaps_dimensions():
     data = _make_image_bytes(size=(100, 50))
     out = convert_image(data, target_format="PNG", rotate=90)
