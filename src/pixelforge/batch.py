@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from pixelforge.core import convert_image
+from PIL import UnidentifiedImageError
 
 Status = Literal["success", "skipped", "error"]
 
@@ -96,6 +97,13 @@ def convert_batch(
                 resize_mode=resize_mode,
                 rotate=rotate,
             )
+        except UnidentifiedImageError:
+            if strict:
+                raise
+            summary.results.append(
+                FileResult(filename, "error", "Not a valid image file")
+            )
+            continue
         except Exception as exc:
             if strict:
                 raise

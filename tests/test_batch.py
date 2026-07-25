@@ -39,6 +39,18 @@ def test_corrupted_file_is_skipped_not_crashing_batch():
     assert summary.errored[0].filename == "bad.png"
 
 
+def test_unreadable_file_gets_clean_error_message_not_internal_repr():
+    """A non-image file should produce a plain, user-facing message —
+    not Python's raw exception repr (e.g. a BytesIO object address),
+    which used to leak into the UI.
+    """
+    files = [("bad.jpg", b"this is not an image")]
+    summary = convert_batch(files, target_format="jpeg")
+    assert summary.errored[0].message == "Not a valid image file"
+    assert "0x" not in summary.errored[0].message
+    assert "BytesIO" not in summary.errored[0].message
+
+
 def test_empty_file_is_skipped():
     files = [("empty.png", b"")]
     summary = convert_batch(files, target_format="jpeg")
@@ -56,7 +68,6 @@ def test_strict_mode_raises_on_first_error_instead_of_recording():
 
 def test_lenient_is_the_default():
     files = [("bad.png", b"not an image")]
-    # Should not raise — default strict=False
     summary = convert_batch(files, target_format="jpeg")
     assert summary.counts()["error"] == 1
 
@@ -76,7 +87,7 @@ def test_output_filename_uses_jpg_not_jpeg_extension():
 def test_output_filename_collision_gets_deduplicated():
     files = [
         ("icon.png", _make_image_bytes()),
-        ("icon.jpeg", _make_image_bytes()),  # same stem -> would collide
+        ("icon.jpeg", _make_image_bytes()),
     ]
     summary = convert_batch(files, target_format="png")
     names = [r.output_filename for r in summary.succeeded]
@@ -96,5 +107,4 @@ def test_resize_and_rotate_params_pass_through():
         files, target_format="png", size=(40, 40), resize_mode="fit", rotate=90
     )
     result = Image.open(io.BytesIO(summary.succeeded[0].data))
-    # original 100x50 rotated 90 -> 50x100, then fit within 40x40 -> 20x40
     assert result.size == (20, 40)
