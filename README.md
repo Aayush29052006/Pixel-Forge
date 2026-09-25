@@ -146,6 +146,4 @@ Pixel-Forge/
 
 ## License
 
-MIT — see [LICENSE](LICENSE). This repository is kept private until after
-graduation; the license governs the code itself regardless of repo
-visibility.
+MIT — see [LICENSE](LICENSE).
