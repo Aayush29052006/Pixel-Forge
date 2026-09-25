@@ -21,6 +21,7 @@ import zipfile
 from flask import Blueprint, jsonify, render_template, request, send_file
 
 from pixelforge.batch import convert_batch
+from pixelforge.core import normalize_format
 
 bp = Blueprint("main", __name__)
 
@@ -40,7 +41,10 @@ def _parse_batch_params() -> dict:
     rather than erroring — the batch engine itself is what enforces
     real validation (e.g. rotate must be a multiple of 90).
     """
-    target_format = request.form.get("format", "PNG")
+    # Unlike the other fields, a bad format is rejected outright (see
+    # ValueError handler below): silently converting to something the
+    # user didn't pick would be worse than an error.
+    target_format = normalize_format(request.form.get("format", "PNG"))
 
     width = request.form.get("width", type=int)
     height = request.form.get("height", type=int)
@@ -66,6 +70,11 @@ def handle_payload_too_large(e):
         error="Upload too large. Try converting fewer files at once, "
         "or a smaller batch."
     ), 413
+
+
+@bp.errorhandler(ValueError)
+def handle_bad_params(e):
+    return jsonify(error=str(e)), 400
 
 
 @bp.app_errorhandler(500)
@@ -94,6 +103,7 @@ def api_convert():
             "status": r.status,
             "message": r.message,
             "output_filename": r.output_filename,
+            "size_bytes": len(r.data) if r.data else 0,
         }
         if r.status == "success" and r.data:
             entry["data_b64"] = base64.b64encode(r.data).decode("ascii")

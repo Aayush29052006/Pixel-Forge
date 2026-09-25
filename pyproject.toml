@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "Pillow>=10.0",
+    "Pillow>=11.3",  # 11.3+ reads and writes AVIF natively
+    "pillow-heif>=0.18",  # HEIC/HEIF (iPhone photos)
     "Flask>=3.0",
 ]
 

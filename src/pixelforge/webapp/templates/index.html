@@ -295,14 +295,20 @@
         <option>JPEG</option>
         <option>PNG</option>
         <option>WEBP</option>
+        <option>AVIF</option>
+        <option>HEIC</option>
         <option>GIF</option>
         <option>BMP</option>
+        <option>TIFF</option>
+        <option>ICO</option>
+        <option>PDF</option>
       </select>
     </div>
 
     <div class="field">
       <label for="sizePreset">Size preset</label>
       <select id="sizePreset">
+        <option value="original" selected>Original size</option>
         <option value="">Custom</option>
         <optgroup label="Icons / Square">
           <option value="128,128">Icon — 128×128</option>
@@ -333,9 +339,9 @@
     <div class="field">
       <label>Target size</label>
       <div class="dims-field">
-        <input type="number" id="width" value="128" min="1" aria-label="Width">
+        <input type="number" id="width" min="1" max="16384" placeholder="auto" aria-label="Width">
         <span class="dims-arrow">→</span>
-        <input type="number" id="height" value="128" min="1" aria-label="Height">
+        <input type="number" id="height" min="1" max="16384" placeholder="auto" aria-label="Height">
       </div>
     </div>
 
@@ -371,13 +377,23 @@
     <div class="format-badges">
       <span class="format-badge">JPG</span>
       <span class="format-badge">PNG</span>
+      <span class="format-badge">HEIC</span>
+      <span class="format-badge">AVIF</span>
       <span class="format-badge">WEBP</span>
       <span class="format-badge">GIF</span>
+      <span class="format-badge">TIFF</span>
       <span class="format-badge">BMP</span>
+      <span class="format-badge">ICO</span>
+      <span class="format-badge">PSD</span>
+      <span class="format-badge">+ more</span>
     </div>
     <div class="selected-files" id="selectedFilesLabel"></div>
   </div>
-  <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+  <!-- Extensions are listed explicitly because browsers (especially on
+       Windows) don't count .heic/.avif/.psd etc. as image/*, so the
+       file picker would hide them. -->
+  <input type="file" id="fileInput" multiple style="display:none"
+    accept="image/*,.heic,.heif,.avif,.tif,.tiff,.ico,.cur,.icns,.psd,.tga,.jp2,.j2k,.jpx,.qoi,.dds,.pcx,.ppm,.pgm,.pbm,.sgi,.xbm,.dib,.jfif">
 
   <div class="toast-container" id="toastContainer"></div>
 
@@ -478,7 +494,7 @@
   function renderSelectedFilesLabel() {
     if (selectedFiles.length > 0) {
       const text = selectedFiles.length === 1
-        ? `1 file selected: ${selectedFiles[0].name}`
+        ? `1 file selected: ${escapeHtml(selectedFiles[0].name)}`
         : `${selectedFiles.length} files selected`;
       selectedFilesLabel.innerHTML = `<span>${text}</span><button type="button" class="clear-link" id="clearFilesBtn">Clear</button>`;
       selectedFilesLabel.classList.add('visible');
@@ -513,15 +529,39 @@
   const heightInput = document.getElementById('height');
   sizePreset.addEventListener('change', () => {
     if (!sizePreset.value) return;
+    if (sizePreset.value === 'original') {
+      widthInput.value = '';
+      heightInput.value = '';
+      return;
+    }
     const [w, h] = sizePreset.value.split(',');
     widthInput.value = w;
     heightInput.value = h;
   });
   // If someone hand-edits width/height after picking a preset, treat
   // it as custom again so the dropdown doesn't silently disagree.
+  // Clearing both fields means "keep original size" again.
   [widthInput, heightInput].forEach(input =>
-    input.addEventListener('input', () => { sizePreset.value = ''; })
+    input.addEventListener('input', () => {
+      sizePreset.value = (widthInput.value || heightInput.value) ? '' : 'original';
+    })
   );
+
+  // ---------- HTML escaping ----------
+  // Filenames and server messages are user-controlled text; never put
+  // them into innerHTML unescaped (a file named "<img onerror=...>.png"
+  // would otherwise run script).
+  function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   // ---------- Toast notifications (replaces native alert()) ----------
   const toastContainer = document.getElementById('toastContainer');
@@ -533,7 +573,7 @@
     toast.className = `toast${type === 'info' ? ' info' : ''}`;
     toast.innerHTML = `
       ${type === 'info' ? ICON_TOAST_INFO : ICON_TOAST_ERROR}
-      <span>${message}</span>
+      <span>${escapeHtml(message)}</span>
       <button class="toast-close" type="button" aria-label="Dismiss">&times;</button>
     `;
     toastContainer.appendChild(toast);
@@ -580,26 +620,35 @@
 
       let thumbHtml, metaHtml, downloadHtml = '';
       if (r.status === 'success') {
-        thumbHtml = `<div class="thumb"><img src="data:image/${data_ext(r.output_filename)};base64,${r.data_b64}" alt=""></div>`;
-        metaHtml = `<span class="status-dot"></span> Converted to ${r.output_filename.split('.').pop().toUpperCase()}`;
-        downloadHtml = `<button class="download-icon" data-filename="${r.output_filename}" data-b64="${r.data_b64}" title="Download">${ICON_DOWNLOAD}</button>`;
+        const ext = r.output_filename.split('.').pop().toLowerCase();
+        thumbHtml = PREVIEWABLE.has(ext)
+          ? `<div class="thumb"><img src="data:${mimeType(ext)};base64,${r.data_b64}" alt=""></div>`
+          : `<div class="thumb">${ICON_OK}</div>`;
+        metaHtml = `<span class="status-dot"></span> Converted to ${escapeHtml(ext.toUpperCase())} · ${formatBytes(r.size_bytes || 0)}`;
+        downloadHtml = `<button class="download-icon" data-filename="${escapeHtml(r.output_filename)}" data-b64="${r.data_b64}" title="Download">${ICON_DOWNLOAD}</button>`;
       } else if (r.status === 'skipped') {
         thumbHtml = `<div class="thumb is-skipped"><img src="/static/img/Warning-Triangle.png" alt="" class="warn-img"></div>`;
-        metaHtml = `<span class="status-dot skipped"></span> Skipped — ${r.message}`;
+        metaHtml = `<span class="status-dot skipped"></span> Skipped — ${escapeHtml(r.message)}`;
       } else {
         thumbHtml = `<div class="thumb is-error"><img src="/static/img/Warning-Triangle.png" alt="" class="warn-img"></div>`;
-        metaHtml = `<span class="status-dot error"></span> Error — ${r.message}`;
+        metaHtml = `<span class="status-dot error"></span> Error — ${escapeHtml(r.message)}`;
       }
 
       row.innerHTML = `
         ${thumbHtml}
         <div class="result-info">
-          <div class="result-name">${r.filename}</div>
+          <div class="result-name" title="${escapeHtml(r.filename)}">${escapeHtml(r.filename)}</div>
           <div class="result-meta">${metaHtml}</div>
         </div>
         ${downloadHtml}
       `;
       resultsList.appendChild(row);
+    });
+
+    // A browser that can't decode a preview (e.g. AVIF on an older
+    // one) falls back to the generic image icon instead of a broken image.
+    resultsList.querySelectorAll('.thumb:not(.is-error):not(.is-skipped) img').forEach(img => {
+      img.addEventListener('error', () => { img.parentElement.innerHTML = ICON_OK; });
     });
 
     resultsList.querySelectorAll('.download-icon').forEach(btn => {
@@ -617,9 +666,14 @@
     zipBtn.disabled = c.success === 0;
   }
 
-  function data_ext(filename) {
-    const ext = filename.split('.').pop().toLowerCase();
-    return ext === 'jpg' ? 'jpeg' : ext;
+  // Output formats browsers can show inline as an <img>. HEIC, TIFF and
+  // PDF can't be (outside Safari), so those get an icon instead.
+  const PREVIEWABLE = new Set(['jpg', 'png', 'webp', 'avif', 'gif', 'bmp', 'ico']);
+
+  function mimeType(ext) {
+    if (ext === 'jpg') return 'image/jpeg';
+    if (ext === 'ico') return 'image/x-icon';
+    return `image/${ext}`;
   }
 
   function downloadSingle(filename, b64) {

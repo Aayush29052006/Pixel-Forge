@@ -13,8 +13,21 @@ methodology to real, testable software projects.
 
 ## Features
 
-- **Convert between any format Pillow supports** — JPEG, PNG, WEBP, GIF, BMP,
-  and more, not a fixed hardcoded list
+- **Reads almost any image** — JPEG, PNG, **HEIC/HEIF (iPhone photos)**,
+  **AVIF**, WEBP, GIF, TIFF, BMP, ICO, PSD, TGA, JPEG 2000 and more
+- **Writes 10 formats** — JPEG, PNG, WEBP, AVIF, HEIC, GIF, BMP, TIFF, ICO
+  and PDF
+- **Handles tricky images** — CMYK print files, 16-bit scans, palette
+  images with transparency, and 1-bit black & white all convert cleanly;
+  transparency is flattened onto white (not black) for formats that
+  can't store it
+- **Keeps animations** — animated GIF/WEBP/PNG stay animated when the
+  output format supports it
+- **Keeps colour accurate** — embedded colour profiles (e.g. Display P3
+  on iPhone photos) are carried over, and JPEG/WEBP/AVIF/HEIC are saved
+  at high quality
+- **Original size by default** — only resizes when you pick a preset or
+  type a size
 - **Resize** with either **Fit** (preserves aspect ratio) or **Stretch**
   (forces exact dimensions), plus an **Auto** option for anyone unsure which
   to pick
@@ -33,7 +46,8 @@ methodology to real, testable software projects.
 
 ## Tech stack
 
-Python, Flask, Pillow, vanilla JS (no frontend framework), pytest.
+Python, Flask, Pillow, pillow-heif (HEIC support), vanilla JS (no
+frontend framework), pytest.
 
 ## Setup
 
@@ -75,7 +89,7 @@ local projects that may already be running on 5000.
 pytest -v
 ```
 
-38 tests across the conversion engine, the batch runner, and the web layer.
+145 tests across the conversion engine, the batch runner, and the web layer.
 
 ## Known limits
 
@@ -95,6 +109,13 @@ single-user tool:
   larger than the source image (e.g. converting a 500×500 photo to 8K) will
   succeed, but the result is interpolated, not AI-upscaled — it'll look
   soft, not sharp.
+- **Target size is capped at 16384 px per side**, and very large source
+  images (over ~256 megapixels) are refused to protect memory.
+- **Resizing needs both width and height.** Filling in only one leaves
+  the image at its original size.
+- **HEIC, TIFF and PDF results show an icon instead of a preview** in the
+  results list, because most browsers can't display those formats. The
+  converted files themselves are fine.
 
 ## More screenshots
 

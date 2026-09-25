@@ -126,3 +126,147 @@ def test_no_resize_when_size_omitted():
     out = convert_image(data, target_format="PNG")
     result = Image.open(io.BytesIO(out))
     assert result.size == (33, 17)
+
+
+# ---------- New input/output formats ----------
+
+
+@pytest.mark.parametrize("source_fmt", ["HEIF", "AVIF", "TIFF", "ICO", "WEBP", "TGA"])
+def test_reads_modern_and_uncommon_input_formats(source_fmt):
+    data = _make_image_bytes(size=(64, 48), color=(0, 128, 255), fmt=source_fmt)
+    out = convert_image(data, target_format="PNG")
+    result = Image.open(io.BytesIO(out))
+    assert result.format == "PNG"
+    assert result.size[0] > 0
+
+
+@pytest.mark.parametrize(
+    "target, expected_pillow_format",
+    [
+        ("HEIC", "HEIF"),
+        ("heif", "HEIF"),
+        ("AVIF", "AVIF"),
+        ("TIFF", "TIFF"),
+        ("tif", "TIFF"),
+        ("ICO", "ICO"),
+        ("WEBP", "WEBP"),
+    ],
+)
+def test_writes_new_output_formats(target, expected_pillow_format):
+    data = _make_image_bytes(size=(64, 48))
+    out = convert_image(data, target_format=target)
+    result = Image.open(io.BytesIO(out))
+    assert result.format == expected_pillow_format
+
+
+def test_writes_pdf():
+    out = convert_image(_make_image_bytes(), target_format="PDF")
+    assert out.startswith(b"%PDF")
+
+
+def test_heic_round_trip_keeps_colour_and_size():
+    data = _make_image_bytes(size=(64, 48), color=(200, 30, 30), fmt="HEIF")
+    out = convert_image(data, target_format="JPEG")
+    result = Image.open(io.BytesIO(out)).convert("RGB")
+    assert result.size == (64, 48)
+    r, g, b = result.getpixel((32, 24))
+    assert r > 150 and g < 80 and b < 80  # still clearly red after lossy trip
+
+
+def test_unsupported_output_format_raises_clear_error():
+    with pytest.raises(ValueError, match="Unsupported output format"):
+        convert_image(_make_image_bytes(), target_format="DOCX")
+
+
+# ---------- Colour modes that used to crash specific encoders ----------
+
+
+@pytest.mark.parametrize("target", ["JPEG", "PNG", "WEBP", "GIF", "BMP", "ICO", "HEIC", "AVIF", "PDF"])
+@pytest.mark.parametrize("mode", ["CMYK", "I;16", "I", "F", "PA", "LA", "1", "P"])
+def test_every_colour_mode_converts_to_every_format(mode, target):
+    img = Image.new(mode, (16, 16))
+    buf = io.BytesIO()
+    img.save(buf, format="TIFF")
+    out = convert_image(buf.getvalue(), target_format=target)
+    assert len(out) > 0
+
+
+def test_16bit_grayscale_is_scaled_not_clipped_to_white():
+    """A plain convert("L") clips every 16-bit value above 255 to pure
+    white. A mid-grey 16-bit pixel must come out mid-grey."""
+    img = Image.new("I;16", (8, 8), 32768)  # 50% grey in 16-bit
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    out = convert_image(buf.getvalue(), target_format="JPEG")
+    value = Image.open(io.BytesIO(out)).getpixel((4, 4))
+    assert 110 < value < 145
+
+
+def test_cmyk_to_png_gives_rgb_with_correct_colour():
+    img = Image.new("CMYK", (8, 8), (0, 255, 255, 0))  # pure red in CMYK
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=100)
+    out = convert_image(buf.getvalue(), target_format="PNG")
+    result = Image.open(io.BytesIO(out))
+    assert result.mode == "RGB"
+    r, g, b = result.getpixel((4, 4))
+    assert r > 200 and g < 60 and b < 60
+
+
+def test_transparency_flattens_onto_white_for_jpeg():
+    data = _make_image_bytes(mode="RGBA", color=(0, 0, 0, 0))  # fully transparent
+    out = convert_image(data, target_format="JPEG")
+    r, g, b = Image.open(io.BytesIO(out)).getpixel((0, 0))
+    assert min(r, g, b) > 240  # white, not black
+
+
+def test_transparency_is_kept_for_formats_that_support_it():
+    data = _make_image_bytes(mode="RGBA", color=(255, 0, 0, 0))
+    out = convert_image(data, target_format="WEBP")
+    assert Image.open(io.BytesIO(out)).mode == "RGBA"
+
+
+def test_icc_colour_profile_is_preserved():
+    from PIL import ImageCms
+
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    img = Image.new("RGB", (8, 8), (10, 200, 10))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", icc_profile=icc)
+    out = convert_image(buf.getvalue(), target_format="JPEG")
+    assert Image.open(io.BytesIO(out)).info.get("icc_profile") == icc
+
+
+# ---------- Animation ----------
+
+
+def _make_animated_gif(frame_count=3, size=(20, 20)):
+    frames = [
+        Image.new("RGB", size, (i * 80, 0, 255 - i * 80)) for i in range(frame_count)
+    ]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=120, loop=0)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("target", ["WEBP", "GIF", "PNG"])
+def test_animated_gif_stays_animated(target):
+    out = convert_image(_make_animated_gif(), target_format=target, size=(10, 10))
+    result = Image.open(io.BytesIO(out))
+    assert result.n_frames == 3
+    assert result.size == (10, 10)
+
+
+def test_animated_gif_to_jpeg_uses_first_frame():
+    out = convert_image(_make_animated_gif(), target_format="JPEG")
+    result = Image.open(io.BytesIO(out))
+    assert getattr(result, "n_frames", 1) == 1
+
+
+# ---------- Size validation ----------
+
+
+@pytest.mark.parametrize("size", [(0, 10), (10, -5), (20000, 10)])
+def test_invalid_target_size_raises(size):
+    with pytest.raises(ValueError):
+        convert_image(_make_image_bytes(), target_format="PNG", size=size)

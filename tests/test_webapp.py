@@ -166,3 +166,42 @@ def test_default_upload_cap_without_env_var(monkeypatch):
     monkeypatch.delenv("PIXELFORGE_MAX_UPLOAD_MB", raising=False)
     app = create_app()
     assert app.config["MAX_CONTENT_LENGTH"] == 300 * 1024 * 1024
+
+
+def test_convert_unknown_format_returns_400_with_message(client):
+    data = {
+        "files": (io.BytesIO(_make_image_bytes()), "icon.png"),
+        "format": "EXE",
+    }
+    resp = client.post("/api/convert", data=data, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert "Unsupported output format" in resp.get_json()["error"]
+
+
+def test_convert_heic_upload_to_png(client):
+    data = {
+        "files": (io.BytesIO(_make_image_bytes(fmt="HEIF")), "IMG_1234.heic"),
+        "format": "PNG",
+    }
+    resp = client.post("/api/convert", data=data, content_type="multipart/form-data")
+    body = resp.get_json()
+    assert body["counts"]["success"] == 1
+    assert body["results"][0]["output_filename"] == "IMG_1234.png"
+    assert body["results"][0]["size_bytes"] > 0
+
+
+def test_no_size_fields_keeps_original_dimensions(client):
+    data = {
+        "files": (io.BytesIO(_make_image_bytes(size=(123, 45))), "a.png"),
+        "format": "WEBP",
+    }
+    resp = client.post("/api/convert", data=data, content_type="multipart/form-data")
+    import base64
+    out = base64.b64decode(resp.get_json()["results"][0]["data_b64"])
+    assert Image.open(io.BytesIO(out)).size == (123, 45)
+
+
+def test_index_page_offers_heic_and_lists_it_in_file_picker(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "<option>HEIC</option>" in html
+    assert ".heic" in html

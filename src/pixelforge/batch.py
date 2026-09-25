@@ -15,8 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pixelforge.core import convert_image
-from PIL import UnidentifiedImageError
+from pixelforge.core import convert_image, output_extension
+from PIL import Image, UnidentifiedImageError
 
 Status = Literal["success", "skipped", "error"]
 
@@ -107,7 +107,9 @@ def convert_batch(
         except Exception as exc:
             if strict:
                 raise
-            summary.results.append(FileResult(filename, "error", str(exc)))
+            summary.results.append(
+                FileResult(filename, "error", _friendly_error(exc))
+            )
             continue
 
         output_name = _unique_name(
@@ -126,11 +128,25 @@ def convert_batch(
     return summary
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Turn an exception into a short message a non-programmer can act on."""
+    if isinstance(exc, Image.DecompressionBombError):
+        return "Image is too large to process safely"
+    if isinstance(exc, MemoryError):
+        return "Not enough memory to convert this image — try a smaller size"
+    if isinstance(exc, ValueError):
+        # Our own validation errors are already written for users.
+        return str(exc)
+    if isinstance(exc, (OSError, SyntaxError)):
+        # Pillow raises these for damaged/truncated files and for
+        # images it can open but not decode.
+        return "File is damaged or uses an unsupported variant of its format"
+    return "Could not convert this image"
+
+
 def _replace_extension(filename: str, target_format: str) -> str:
     """Swap filename's extension for one matching target_format."""
-    ext = target_format.lower()
-    if ext == "jpeg":
-        ext = "jpg"
+    ext = output_extension(target_format)
     stem = filename.rsplit(".", 1)[0] if "." in filename else filename
     return f"{stem}.{ext}"
 

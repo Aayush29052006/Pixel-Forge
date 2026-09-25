@@ -108,3 +108,23 @@ def test_resize_and_rotate_params_pass_through():
     )
     result = Image.open(io.BytesIO(summary.succeeded[0].data))
     assert result.size == (20, 40)
+
+
+def test_heic_output_uses_heic_extension():
+    files = [("photo.png", _make_image_bytes())]
+    summary = convert_batch(files, target_format="heic")
+    assert summary.succeeded[0].output_filename == "photo.heic"
+
+
+def test_heic_input_file_converts():
+    files = [("IMG_0001.HEIC", _make_image_bytes(fmt="HEIF"))]
+    summary = convert_batch(files, target_format="jpeg")
+    assert summary.succeeded[0].output_filename == "IMG_0001.jpg"
+
+
+def test_truncated_file_gets_friendly_message():
+    good = _make_image_bytes(size=(200, 200), fmt="JPEG")
+    files = [("half.jpg", good[: len(good) // 2])]
+    summary = convert_batch(files, target_format="png")
+    assert summary.counts()["error"] == 1
+    assert "damaged" in summary.errored[0].message
