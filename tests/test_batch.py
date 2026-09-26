@@ -128,3 +128,47 @@ def test_truncated_file_gets_friendly_message():
     summary = convert_batch(files, target_format="png")
     assert summary.counts()["error"] == 1
     assert "damaged" in summary.errored[0].message
+
+
+# ---------- Parallel conversion ----------
+
+
+def test_parallel_results_keep_input_order_and_names():
+    files = [(f"img{i}.png", _make_image_bytes(size=(10 + i, 10))) for i in range(20)]
+    files.insert(7, ("broken.png", b"garbage"))
+    files.insert(3, ("empty.png", b""))
+    summary = convert_batch(files, target_format="png", max_workers=8)
+    assert [r.filename for r in summary.results] == [f for f, _ in files]
+    widths = [Image.open(io.BytesIO(r.data)).size[0] for r in summary.succeeded]
+    assert widths == list(range(10, 30))
+
+
+def test_parallel_and_sequential_give_identical_output():
+    files = [("a.png", _make_image_bytes()), ("a.jpg", _make_image_bytes()), ("x.png", b"bad")]
+    seq = convert_batch(files, target_format="webp", max_workers=1)
+    par = convert_batch(files, target_format="webp", max_workers=4)
+    assert [(r.status, r.output_filename, r.data) for r in seq.results] == [
+        (r.status, r.output_filename, r.data) for r in par.results
+    ]
+
+
+def test_strict_mode_still_raises_in_parallel():
+    files = [("good.png", _make_image_bytes()), ("bad.png", b"nope")] * 5
+    with pytest.raises(Exception):
+        convert_batch(files, target_format="png", strict=True, max_workers=4)
+
+
+def test_previews_only_when_requested():
+    files = [("a.png", _make_image_bytes())]
+    assert convert_batch(files, target_format="png").succeeded[0].preview is None
+    preview = convert_batch(files, target_format="png", with_previews=True).succeeded[0].preview
+    assert Image.open(io.BytesIO(preview)).format == "WEBP"
+
+
+def test_workers_env_var(monkeypatch):
+    from pixelforge.batch import default_workers
+
+    monkeypatch.setenv("PIXELFORGE_WORKERS", "3")
+    assert default_workers() == 3
+    monkeypatch.delenv("PIXELFORGE_WORKERS")
+    assert 1 <= default_workers() <= 8

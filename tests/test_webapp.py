@@ -50,7 +50,9 @@ def test_convert_single_file_success(client):
     body = resp.get_json()
     assert body["counts"] == {"success": 1, "skipped": 0, "error": 0}
     assert body["results"][0]["output_filename"] == "icon.jpg"
-    assert "data_b64" in body["results"][0]
+    assert body["results"][0]["url"]
+    assert body["results"][0]["preview_b64"]
+    assert "data_b64" not in body["results"][0]  # no full images in JSON
 
 
 def test_convert_multiple_files_mixed_results(client):
@@ -77,8 +79,7 @@ def test_convert_applies_resize_params(client):
     }
     resp = client.post("/api/convert", data=data, content_type="multipart/form-data")
     body = resp.get_json()
-    import base64
-    out_bytes = base64.b64decode(body["results"][0]["data_b64"])
+    out_bytes = client.get(body["results"][0]["url"]).data
     out_img = Image.open(io.BytesIO(out_bytes))
     assert out_img.size == (40, 20)  # 2:1 aspect fit within 40x40
 
@@ -196,8 +197,7 @@ def test_no_size_fields_keeps_original_dimensions(client):
         "format": "WEBP",
     }
     resp = client.post("/api/convert", data=data, content_type="multipart/form-data")
-    import base64
-    out = base64.b64decode(resp.get_json()["results"][0]["data_b64"])
+    out = client.get(resp.get_json()["results"][0]["url"]).data
     assert Image.open(io.BytesIO(out)).size == (123, 45)
 
 
@@ -205,3 +205,80 @@ def test_index_page_offers_heic_and_lists_it_in_file_picker(client):
     html = client.get("/").get_data(as_text=True)
     assert "<option>HEIC</option>" in html
     assert ".heic" in html
+
+
+# ---------- Stored results: downloads and ZIP without re-converting ----------
+
+
+def _convert(client, files, fmt="PNG"):
+    data = {"files": files, "format": fmt}
+    return client.post("/api/convert", data=data, content_type="multipart/form-data").get_json()
+
+
+def test_download_url_returns_converted_file_with_its_name(client):
+    body = _convert(client, [(io.BytesIO(_make_image_bytes(size=(30, 20))), "cat.png")], "WEBP")
+    resp = client.get(body["results"][0]["url"])
+    assert resp.status_code == 200
+    assert 'filename=cat.webp' in resp.headers["Content-Disposition"]
+    assert Image.open(io.BytesIO(resp.data)).format == "WEBP"
+
+
+def test_preview_is_small_webp(client):
+    body = _convert(client, [(io.BytesIO(_make_image_bytes(size=(2000, 1000))), "big.png")])
+    import base64
+    preview = Image.open(io.BytesIO(base64.b64decode(body["results"][0]["preview_b64"])))
+    assert preview.format == "WEBP"
+    assert max(preview.size) <= 96
+
+
+def test_batch_zip_uses_stored_results_without_reupload(client, monkeypatch):
+    body = _convert(client, [
+        (io.BytesIO(_make_image_bytes()), "a.png"),
+        (io.BytesIO(b"not an image"), "bad.png"),
+        (io.BytesIO(_make_image_bytes()), "b.png"),
+    ], "JPEG")
+
+    # Prove the ZIP route never converts anything again.
+    import pixelforge.webapp.routes as routes
+    monkeypatch.setattr(routes, "convert_batch", lambda *a, **k: pytest.fail("re-converted"))
+
+    resp = client.get(body["zip_url"])
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    assert sorted(zf.namelist()) == ["a.jpg", "b.jpg"]
+    # JPEGs are already compressed, so they're stored, not re-deflated.
+    assert all(i.compress_type == zipfile.ZIP_STORED for i in zf.infolist())
+
+
+def test_download_urls_skip_failed_files(client):
+    body = _convert(client, [
+        (io.BytesIO(b"not an image"), "bad.png"),
+        (io.BytesIO(_make_image_bytes()), "good.png"),
+    ])
+    bad, good = body["results"]
+    assert "url" not in bad
+    assert 'filename=good.png' in client.get(good["url"]).headers["Content-Disposition"]
+
+
+def test_all_failed_batch_has_no_zip_url(client):
+    body = _convert(client, [(io.BytesIO(b"nope"), "bad.png")])
+    assert body["zip_url"] is None
+
+
+def test_unknown_batch_returns_404_json(client):
+    for url in ("/api/batch/nope/zip", "/api/batch/nope/files/0"):
+        resp = client.get(url)
+        assert resp.status_code == 404
+        assert "expired" in resp.get_json()["error"]
+
+
+def test_result_store_evicts_oldest_but_keeps_newest():
+    from pixelforge.webapp.results import ResultStore, StoredFile
+
+    store = ResultStore(max_bytes=100)
+    first = store.add([StoredFile("a.png", b"x" * 60)])
+    second = store.add([StoredFile("b.png", b"x" * 60)])
+    assert store.get(first) is None  # evicted: 120 bytes > 100 budget
+    assert store.get(second) is not None
+    huge = store.add([StoredFile("c.png", b"x" * 500)])
+    assert store.get(huge) is not None  # newest always kept, even over budget

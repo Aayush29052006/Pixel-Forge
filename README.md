@@ -40,6 +40,9 @@ methodology to real, testable software projects.
   still converts
 - **Drag-and-drop or click-to-browse** file selection, additive (adding more
   files doesn't wipe out what you already selected)
+- **Fast on big batches** — files are converted in parallel, the page only
+  receives small previews, and **Download All** zips the results already
+  converted instead of redoing the work (28 iPhone photos to 8K PNG: ~14 s)
 - **Individual downloads** per converted file, or **Download All** as a ZIP
 - **Dark/light theme**, persisted across visits, no flash of the wrong theme
   on reload
@@ -89,7 +92,18 @@ local projects that may already be running on 5000.
 pytest -v
 ```
 
-145 tests across the conversion engine, the batch runner, and the web layer.
+157 tests across the conversion engine, the batch runner, and the web layer.
+
+## Settings
+
+All optional, set as environment variables when starting the app, e.g.
+`PIXELFORGE_WORKERS=16 python run.sh`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PIXELFORGE_MAX_UPLOAD_MB` | 300 | Largest total upload per batch |
+| `PIXELFORGE_WORKERS` | CPU cores, max 8 | Files converted at the same time. More is faster but uses more memory (8K output: ~2.3 GB at 8, ~3.3 GB at 16) |
+| `PIXELFORGE_RESULT_CACHE_MB` | 2048 | Memory kept for converted results so downloads and the ZIP don't need a re-conversion. Older batches are dropped past this limit; the newest is always kept |
 
 ## Known limits
 
@@ -113,9 +127,10 @@ single-user tool:
   images (over ~256 megapixels) are refused to protect memory.
 - **Resizing needs both width and height.** Filling in only one leaves
   the image at its original size.
-- **HEIC, TIFF and PDF results show an icon instead of a preview** in the
-  results list, because most browsers can't display those formats. The
-  converted files themselves are fine.
+- **Results stay available until newer batches push them out** of the
+  result cache (see Settings). If that happens, downloading shows "These
+  results have expired" — just convert again. Restarting the app also
+  clears them.
 
 ## More screenshots
 
@@ -131,10 +146,11 @@ single-user tool:
 Pixel-Forge/
 ├── src/pixelforge/
 │   ├── core.py              # pure conversion engine (bytes in, bytes out)
-│   ├── batch.py              # batch runner: per-file error handling, summary report
+│   ├── batch.py              # batch runner: parallel, per-file error handling, summary report
 │   └── webapp/
 │       ├── __init__.py       # Flask app factory
-│       ├── routes.py         # / and /api/convert, /api/convert/zip
+│       ├── routes.py         # /, /api/convert, /api/batch/<id>/..., /api/convert/zip
+│       ├── results.py        # in-memory store of converted batches
 │       ├── static/img/       # the one raster asset the app uses (error icon)
 │       └── templates/
 │           └── index.html    # the whole frontend: HTML/CSS/JS, no build step

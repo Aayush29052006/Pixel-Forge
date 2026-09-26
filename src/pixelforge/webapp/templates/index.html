@@ -620,12 +620,12 @@
 
       let thumbHtml, metaHtml, downloadHtml = '';
       if (r.status === 'success') {
+        // The server sends a tiny WEBP preview, not the full image — a
+        // batch of 8K results would otherwise be hundreds of MB of JSON.
         const ext = r.output_filename.split('.').pop().toLowerCase();
-        thumbHtml = PREVIEWABLE.has(ext)
-          ? `<div class="thumb"><img src="data:${mimeType(ext)};base64,${r.data_b64}" alt=""></div>`
-          : `<div class="thumb">${ICON_OK}</div>`;
+        thumbHtml = `<div class="thumb"><img src="data:image/webp;base64,${r.preview_b64}" alt=""></div>`;
         metaHtml = `<span class="status-dot"></span> Converted to ${escapeHtml(ext.toUpperCase())} · ${formatBytes(r.size_bytes || 0)}`;
-        downloadHtml = `<button class="download-icon" data-filename="${escapeHtml(r.output_filename)}" data-b64="${r.data_b64}" title="Download">${ICON_DOWNLOAD}</button>`;
+        downloadHtml = `<button class="download-icon" data-url="${escapeHtml(r.url)}" data-filename="${escapeHtml(r.output_filename)}" title="Download">${ICON_DOWNLOAD}</button>`;
       } else if (r.status === 'skipped') {
         thumbHtml = `<div class="thumb is-skipped"><img src="/static/img/Warning-Triangle.png" alt="" class="warn-img"></div>`;
         metaHtml = `<span class="status-dot skipped"></span> Skipped — ${escapeHtml(r.message)}`;
@@ -645,15 +645,20 @@
       resultsList.appendChild(row);
     });
 
-    // A browser that can't decode a preview (e.g. AVIF on an older
-    // one) falls back to the generic image icon instead of a broken image.
+    // If a preview can't be decoded for any reason, show the generic
+    // image icon instead of a broken image.
     resultsList.querySelectorAll('.thumb:not(.is-error):not(.is-skipped) img').forEach(img => {
       img.addEventListener('error', () => { img.parentElement.innerHTML = ICON_OK; });
     });
 
     resultsList.querySelectorAll('.download-icon').forEach(btn => {
-      btn.addEventListener('click', () => downloadSingle(btn.dataset.filename, btn.dataset.b64));
+      btn.addEventListener('click', () =>
+        startDownload(btn.dataset.url, btn.dataset.url, btn.dataset.filename));
     });
+
+    // Remember where this batch's files live for "Download All (ZIP)".
+    const firstSuccess = data.results.find(r => r.status === 'success');
+    lastBatch = data.zip_url ? { zipUrl: data.zip_url, checkUrl: firstSuccess.url } : null;
 
     const c = data.counts;
     const parts = [];
@@ -666,19 +671,25 @@
     zipBtn.disabled = c.success === 0;
   }
 
-  // Output formats browsers can show inline as an <img>. HEIC, TIFF and
-  // PDF can't be (outside Safari), so those get an icon instead.
-  const PREVIEWABLE = new Set(['jpg', 'png', 'webp', 'avif', 'gif', 'bmp', 'ico']);
+  let lastBatch = null;
 
-  function mimeType(ext) {
-    if (ext === 'jpg') return 'image/jpeg';
-    if (ext === 'ico') return 'image/x-icon';
-    return `image/${ext}`;
-  }
-
-  function downloadSingle(filename, b64) {
+  // Downloads go straight from the server to disk via a normal link, so
+  // even a multi-hundred-MB ZIP never has to sit in page memory. A cheap
+  // HEAD request first catches results the server has since dropped,
+  // which would otherwise download as a broken file.
+  async function startDownload(checkUrl, url, filename) {
+    try {
+      const probe = await fetch(checkUrl, { method: 'HEAD' });
+      if (!probe.ok) {
+        showToast('These results have expired. Please convert again.');
+        return;
+      }
+    } catch {
+      showToast('Could not reach the server. Is it still running?');
+      return;
+    }
     const a = document.createElement('a');
-    a.href = 'data:application/octet-stream;base64,' + b64;
+    a.href = url;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
@@ -696,7 +707,9 @@
       return;
     }
     convertBtn.disabled = true;
-    convertBtn.textContent = 'Converting…';
+    convertBtn.textContent = selectedFiles.length === 1
+      ? 'Converting…'
+      : `Converting ${selectedFiles.length} files…`;
     try {
       const res = await fetch('/api/convert', { method: 'POST', body: buildFormData() });
       let data;
@@ -719,27 +732,12 @@
     }
   });
 
+  // Zips the results already on screen — no re-upload, no re-conversion.
   zipBtn.addEventListener('click', async () => {
-    if (selectedFiles.length === 0) return;
+    if (!lastBatch) return;
     zipBtn.disabled = true;
     try {
-      const res = await fetch('/api/convert/zip', { method: 'POST', body: buildFormData() });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        showToast(data.error || 'Could not build the ZIP file.');
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'pixelforge-converted.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      showToast('Could not reach the server. Is it still running?');
+      await startDownload(lastBatch.checkUrl, lastBatch.zipUrl, 'pixelforge-converted.zip');
     } finally {
       zipBtn.disabled = false;
     }

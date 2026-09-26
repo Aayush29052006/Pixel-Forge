@@ -3,13 +3,18 @@
     GET  /                 -> upload page (format, size, resize-mode,
                                 rotate controls; drag-drop upload)
     POST /api/convert      -> accepts multiple uploaded files, runs
-                                the batch engine, returns a JSON
-                                manifest (per-file status + base64
-                                data for successes) that the page uses
-                                to render the results panel and offer
-                                individual downloads
-    POST /api/convert/zip  -> same input, returns a ZIP archive of
-                                every successfully converted file
+                                the batch engine, keeps the output in
+                                the ResultStore and returns a JSON
+                                manifest: per-file status, a small
+                                base64 preview, and a download URL
+    GET  /api/batch/<id>/files/<n>
+                           -> one converted file from that batch
+    GET  /api/batch/<id>/zip
+                           -> ZIP of every converted file in that batch,
+                                built from stored results (no re-upload,
+                                no re-conversion)
+    POST /api/convert/zip  -> one-shot: uploads files, returns a ZIP
+                                (for scripts; the page uses the GET route)
 """
 
 from __future__ import annotations
@@ -18,14 +23,54 @@ import base64
 import io
 import zipfile
 
-from flask import Blueprint, jsonify, render_template, request, send_file
+from flask import (
+    Blueprint,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
 from pixelforge.batch import convert_batch
 from pixelforge.core import normalize_format
+from pixelforge.webapp.results import ResultStore, StoredFile
 
 bp = Blueprint("main", __name__)
 
 _ALLOWED_RESIZE_MODES = {"fit", "stretch"}
+
+# Output formats that are already compressed: deflating them again in
+# the ZIP costs lots of time (hundreds of MB for 8K PNGs) and saves
+# almost nothing, so they're stored as-is.
+_PRECOMPRESSED_EXTENSIONS = {"jpg", "png", "webp", "avif", "heic", "gif"}
+
+_EXPIRED_MESSAGE = "These results have expired. Please convert again."
+
+
+def _store() -> ResultStore:
+    return current_app.extensions["pixelforge_results"]
+
+
+def _zip_response(files: list[StoredFile]):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        for f in files:
+            ext = f.filename.rsplit(".", 1)[-1].lower()
+            method = (
+                zipfile.ZIP_STORED
+                if ext in _PRECOMPRESSED_EXTENSIONS
+                else zipfile.ZIP_DEFLATED
+            )
+            zf.writestr(f.filename, f.data, compress_type=method)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="pixelforge-converted.zip",
+    )
 
 
 def _read_uploaded_files() -> list[tuple[str, bytes]]:
@@ -94,9 +139,13 @@ def api_convert():
         return jsonify(error="No files provided"), 400
 
     params = _parse_batch_params()
-    summary = convert_batch(files, **params)
+    summary = convert_batch(files, **params, with_previews=True)
+
+    stored = [StoredFile(r.output_filename, r.data) for r in summary.succeeded]
+    batch_id = _store().add(stored)
 
     results = []
+    index = 0
     for r in summary.results:
         entry = {
             "filename": r.filename,
@@ -105,11 +154,42 @@ def api_convert():
             "output_filename": r.output_filename,
             "size_bytes": len(r.data) if r.data else 0,
         }
-        if r.status == "success" and r.data:
-            entry["data_b64"] = base64.b64encode(r.data).decode("ascii")
+        if r.status == "success":
+            entry["url"] = url_for(
+                "main.batch_file", batch_id=batch_id, index=index
+            )
+            entry["preview_b64"] = base64.b64encode(r.preview).decode("ascii")
+            index += 1
         results.append(entry)
 
-    return jsonify(results=results, counts=summary.counts())
+    return jsonify(
+        batch_id=batch_id,
+        zip_url=url_for("main.batch_zip", batch_id=batch_id) if stored else None,
+        results=results,
+        counts=summary.counts(),
+    )
+
+
+@bp.route("/api/batch/<batch_id>/files/<int:index>")
+def batch_file(batch_id: str, index: int):
+    files = _store().get(batch_id)
+    if files is None or not 0 <= index < len(files):
+        return jsonify(error=_EXPIRED_MESSAGE), 404
+    f = files[index]
+    return send_file(
+        io.BytesIO(f.data),
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name=f.filename,
+    )
+
+
+@bp.route("/api/batch/<batch_id>/zip")
+def batch_zip(batch_id: str):
+    files = _store().get(batch_id)
+    if not files:
+        return jsonify(error=_EXPIRED_MESSAGE), 404
+    return _zip_response(files)
 
 
 @bp.route("/api/convert/zip", methods=["POST"])
@@ -124,15 +204,6 @@ def api_convert_zip():
     if not summary.succeeded:
         return jsonify(error="No files converted successfully"), 400
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for r in summary.succeeded:
-            zf.writestr(r.output_filename, r.data)
-    buffer.seek(0)
-
-    return send_file(
-        buffer,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name="pixelforge-converted.zip",
+    return _zip_response(
+        [StoredFile(r.output_filename, r.data) for r in summary.succeeded]
     )

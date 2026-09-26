@@ -12,7 +12,10 @@ import os
 
 from flask import Flask
 
+from pixelforge.webapp.results import ResultStore
+
 _DEFAULT_MAX_UPLOAD_MB = 300
+_DEFAULT_RESULT_CACHE_MB = 2048
 
 
 def create_app() -> Flask:
@@ -30,6 +33,14 @@ def create_app() -> Flask:
         os.environ.get("PIXELFORGE_MAX_UPLOAD_MB", _DEFAULT_MAX_UPLOAD_MB)
     )
     app.config["MAX_CONTENT_LENGTH"] = max_upload_mb * 1024 * 1024
+
+    # Converted batches are kept in memory so downloads and the ZIP
+    # don't need a second conversion. Oldest batches are dropped once
+    # this budget is passed (the newest one is always kept).
+    cache_mb = int(
+        os.environ.get("PIXELFORGE_RESULT_CACHE_MB", _DEFAULT_RESULT_CACHE_MB)
+    )
+    app.extensions["pixelforge_results"] = ResultStore(cache_mb * 1024 * 1024)
 
     from pixelforge.webapp.routes import bp
 

@@ -74,7 +74,13 @@ _SAVE_OPTIONS = {
     "AVIF": {"quality": 85},
     "HEIF": {"quality": 90},
     "TIFF": {"compression": "tiff_lzw"},
+    # zlib level 3 instead of Pillow's default 6: ~2.5x faster to save a
+    # large (e.g. 8K) PNG for only ~8% more bytes. Still lossless.
+    "PNG": {"compress_level": 3},
 }
+
+# Longest side, in pixels, of the small preview images the web UI shows.
+PREVIEW_SIZE = 96
 
 # Which colour "family" each Pillow mode belongs to — used to decide
 # whether the source's embedded colour profile still applies after
@@ -144,6 +150,60 @@ def convert_image(
             or `size` is invalid, or `target_format` isn't supported.
         PIL.UnidentifiedImageError: If `data` isn't a readable image.
     """
+    return _convert(
+        data,
+        target_format=target_format,
+        size=size,
+        resize_mode=resize_mode,
+        rotate=rotate,
+    )[0]
+
+
+def convert_image_with_preview(
+    data: bytes,
+    *,
+    target_format: str,
+    size: tuple[int, int] | None = None,
+    resize_mode: ResizeMode = "fit",
+    rotate: int = 0,
+) -> tuple[bytes, bytes]:
+    """Like convert_image(), but also return a small WEBP preview.
+
+    The preview is made from the already-transformed image in memory,
+    so it costs almost nothing — unlike decoding the (possibly 8K)
+    output again afterwards.
+
+    Returns:
+        (converted bytes, preview WEBP bytes no larger than PREVIEW_SIZE).
+    """
+    converted, first_frame = _convert(
+        data,
+        target_format=target_format,
+        size=size,
+        resize_mode=resize_mode,
+        rotate=rotate,
+    )
+    return converted, _make_preview(first_frame)
+
+
+def _make_preview(img: Image.Image) -> bytes:
+    preview = img.copy()
+    # reducing_gap makes shrinking a huge image to thumbnail size cheap.
+    preview.thumbnail((PREVIEW_SIZE, PREVIEW_SIZE), Image.LANCZOS, reducing_gap=2.0)
+    out = io.BytesIO()
+    preview.save(out, format="WEBP", quality=80)
+    return out.getvalue()
+
+
+def _convert(
+    data: bytes,
+    *,
+    target_format: str,
+    size: tuple[int, int] | None,
+    resize_mode: ResizeMode,
+    rotate: int,
+) -> tuple[bytes, Image.Image]:
+    """Shared implementation: returns (converted bytes, first output frame)."""
     if rotate % 90 != 0:
         raise ValueError(f"rotate must be a multiple of 90, got {rotate}")
     if resize_mode not in ("fit", "stretch"):
@@ -170,7 +230,7 @@ def convert_image(
                 )
                 if len(frames) == 1:
                     _check_animation_budget(frames[0].size, frame_count)
-            return _save(
+            converted = _save(
                 frames[0],
                 spec,
                 _keep_profile(icc_profile, source_family, frames[0]),
@@ -178,9 +238,10 @@ def convert_image(
                 duration=durations,
                 loop=src.info.get("loop", 0),
             )
+            return converted, frames[0]
 
         img = _prepare_frame(src, spec, size, resize_mode, rotate)
-        return _save(img, spec, _keep_profile(icc_profile, source_family, img))
+        return _save(img, spec, _keep_profile(icc_profile, source_family, img)), img
 
 
 def _validate_size(size: tuple[int, int]) -> None:
